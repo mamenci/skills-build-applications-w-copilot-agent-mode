@@ -69,4 +69,22 @@ describe('team creation validation', () => {
     expect(await User.countDocuments()).toBe(1);
     expect(await Team.countDocuments()).toBe(1);
   });
+
+  it('keeps User.team and Team.members consistent when members join a new team', async () => {
+    const previous = await Team.create({ name: 'Robocats', mascot: 'Hubot' });
+    const member = await User.create({ name: 'Mona', email: 'mona@example.com', team: previous._id, fitnessGoal: 'endurance' });
+    await Team.updateOne({ _id: previous._id }, { $addToSet: { members: member._id } });
+    const response = await request(app).post('/api/teams').send({ name: 'Octocats', mascot: 'Mona', members: [member._id.toString()] });
+    expect(response.status).toBe(201);
+    expect((await User.findById(member._id))?.team?.toString()).toBe(response.body.team._id);
+    expect((await Team.findById(previous._id))?.members).toHaveLength(0);
+  });
+
+  it('lists member names next to the member IDs', async () => {
+    const member = await User.create({ name: 'Mona', email: 'mona@example.com', fitnessGoal: 'endurance' });
+    await request(app).post('/api/teams').send({ name: 'Octocats', mascot: 'Mona', members: [member._id.toString()] });
+    const listed = await request(app).get('/api/teams');
+    expect(listed.body.teams[0].members).toEqual([member._id.toString()]);
+    expect(listed.body.teams[0].memberNames).toEqual(['Mona']);
+  });
 });

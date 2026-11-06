@@ -55,6 +55,17 @@ describe('activity creation validation', () => {
     expect(await Team.countDocuments()).toBe(1);
   });
 
+  it('rejects an activity whose team is not the user\'s team without writing', async () => {
+    const [team, other] = await Team.create([{ name: 'Octocats', mascot: 'Mona' }, { name: 'Robocats', mascot: 'Hubot' }]);
+    const user = await User.create({ name: 'Mona', email: 'mona@example.com', team: team._id, fitnessGoal: 'endurance' });
+    const response = await request(app).post('/api/activities').send({
+      userId: user._id.toString(), teamId: other._id.toString(), type: 'run', minutes: 30,
+    });
+    expect(response.status).toBe(409);
+    expect(response.body.error).toBe('User does not belong to the team');
+    expect(await Activity.countDocuments()).toBe(0);
+  });
+
   it('computes points and timestamps on the server while preserving submitted values', async () => {
     const team = await Team.create({ name: 'Octocats', mascot: 'Mona' });
     const user = await User.create({ name: 'Mona', email: 'mona@example.com', team: team._id, fitnessGoal: 'endurance' });

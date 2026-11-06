@@ -22,15 +22,24 @@ export async function createActivity(input: unknown) {
   if (typeof type !== 'string' || !type.trim() || typeof minutes !== 'number' || !Number.isFinite(minutes) || minutes <= 0) {
     throw Object.assign(new Error('type must be non-empty and minutes must be a positive finite number'), { status: 400 });
   }
-  const [user, team] = await Promise.all([User.exists({ _id: userId }), Team.exists({ _id: teamId })]);
+  const [user, team] = await Promise.all([User.findById(userId).select('team').lean(), Team.exists({ _id: teamId })]);
   if (!user || !team) {
     throw Object.assign(new Error('User or team not found'), { status: 404 });
+  }
+  if (user.team?.toString() !== teamId.toLowerCase()) {
+    throw Object.assign(new Error('User does not belong to the team'), { status: 409 });
   }
   return Activity.create({ user: userId, team: teamId, type, minutes, points: minutes, occurredAt: new Date() });
 }
 
 export async function listTeams() {
-  return Team.find().lean();
+  const teams = await Team.find().populate<{ members: { _id: unknown; name: string }[] }>('members', 'name').lean();
+  // `members` keeps the ID contract; `memberNames` is for display.
+  return teams.map((team) => ({
+    ...team,
+    members: team.members.map((member) => String(member._id)),
+    memberNames: team.members.map((member) => member.name),
+  }));
 }
 
 export async function createTeam(input: unknown) {
@@ -53,7 +62,16 @@ export async function createTeam(input: unknown) {
   if (uniqueMembers.length && await User.countDocuments({ _id: { $in: uniqueMembers } }) !== uniqueMembers.length) {
     throw Object.assign(new Error('One or more members were not found'), { status: 404 });
   }
-  return Team.create({ name: input.name, mascot: input.mascot, members });
+  const team = await Team.create({ name: input.name, mascot: input.mascot, members });
+  if (uniqueMembers.length) {
+    // Move each member out of any previous team so User.team and Team.members stay in sync.
+    const users = await User.find({ _id: { $in: uniqueMembers } }).select('team');
+    await Promise.all(users
+      .filter((user) => user.team)
+      .map((user) => Team.updateOne({ _id: user.team }, { $pull: { members: user._id } })));
+    await User.updateMany({ _id: { $in: uniqueMembers } }, { $set: { team: team._id } });
+  }
+  return team;
 }
 
 export async function getLeaderboard() {
