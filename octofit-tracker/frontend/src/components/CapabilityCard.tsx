@@ -1,29 +1,27 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { getJson } from '../api/client.js';
 
 type Props<T> = {
   title: string;
   description: string;
-  path: string;
-  select: (payload: any) => T[];
+  load: () => Promise<T[]>;
   emptyText: string;
   renderItem: (item: T) => ReactNode;
 };
 
 type State<T> = { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; items: T[] };
 
-export function CapabilityCard<T>({ title, description, path, select, emptyText, renderItem }: Props<T>) {
+// `load` must be a stable (module-level) function so the request runs once per mount.
+export function CapabilityCard<T>({ title, description, load, emptyText, renderItem }: Props<T>) {
   const [state, setState] = useState<State<T>>({ status: 'loading' });
 
   useEffect(() => {
     let active = true;
     setState({ status: 'loading' });
-    getJson<unknown>(path)
-      .then((payload) => active && setState({ status: 'ready', items: select(payload) ?? [] }))
+    load()
+      .then((items) => active && setState({ status: 'ready', items: items ?? [] }))
       .catch((error: Error) => active && setState({ status: 'error', message: error.message }));
     return () => { active = false; };
-    // select is a stable inline function per caller; path alone identifies the request
-  }, [path]);
+  }, [load]);
 
   return (
     <section className="card h-100">
